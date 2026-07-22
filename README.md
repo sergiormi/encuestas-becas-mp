@@ -1,1 +1,1 @@
-# encuestas-becas-mp
+Static landing page.
