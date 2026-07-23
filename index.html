@@ -539,6 +539,38 @@ select:focus, textarea:focus { box-shadow: 0 0 0 3px rgba(91,103,112,.14); }
 
 @media print { .dust { display: none; } }
 
+/* ── Pestañas del panel y vista Becario ↔ Tutor ──────────────────────── */
+.dtabs { display: flex; gap: 8px; margin: 18px 0 4px; }
+.dtab {
+  font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+  padding: 9px 18px; border-radius: 12px 12px 0 0; border: 1px solid var(--gray-20);
+  border-bottom: none; background: rgba(255,255,255,.5); color: var(--ink-2);
+}
+.dtab[aria-pressed="true"] { background: var(--mp-gray); border-color: var(--mp-gray); color: #fff; }
+.dtab:hover:not([aria-pressed="true"]) { border-color: var(--mp-gray); }
+.vs-selrow { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 14px 18px; border-radius: 0 var(--r) var(--r) var(--r); margin-bottom: 16px; }
+.vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 720px) { .vs-grid { grid-template-columns: 1fr; } }
+.vs-col h4 { display: flex; align-items: center; gap: 8px; }
+.vs-rolechip { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; padding: 3px 9px; border-radius: 12px; }
+.vs-rolechip--b { background: var(--red-08); color: var(--mp-red); border: 1px solid var(--red-20); }
+.vs-rolechip--t { background: var(--gray-08); color: var(--mp-gray); border: 1px solid var(--gray-20); }
+.vs-block { margin-top: 14px; }
+.vs-block-name { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-muted); margin-bottom: 8px; border-bottom: 1px solid var(--gray-20); padding-bottom: 4px; }
+.vs-q { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 5px 0; font-size: 12px; color: var(--ink-2); }
+.vs-q-label { flex: 1; line-height: 1.45; }
+.vs-val { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vs-val--txt { font-weight: 400; font-style: italic; color: var(--ink-2); white-space: normal; text-align: right; max-width: 46%; }
+.vs-minibar { display: inline-block; width: 54px; height: 7px; border-radius: 4px; background: var(--gray-20); position: relative; margin-right: 7px; vertical-align: middle; }
+.vs-minibar i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--series-1); width: calc(var(--p) * 1%); }
+.vs-flag { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; border-radius: var(--r); margin-bottom: 14px; font-size: 13px; line-height: 1.6; }
+.vs-flag--good { background: var(--good-08); border: 1px solid #b7e4c9; color: var(--good); }
+.vs-flag--warn { background: var(--warn-08); border: 1px solid #f0d090; color: var(--warn); }
+.vs-flag--crit { background: var(--danger-08); border: 1px solid #f3bdb8; color: var(--danger); }
+.vs-expediente { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 14px 18px; border-radius: var(--r); margin-bottom: 14px; font-size: 12.5px; }
+.vs-expediente b { color: var(--ink); font-weight: 500; }
+.vs-missing { padding: 26px 18px; text-align: center; color: var(--ink-muted); font-size: 13px; border: 1.5px dashed var(--gray-40); border-radius: var(--r); }
+
 footer { border-top: 1px solid rgba(91,103,112,.16); padding-block: 22px; text-align: center; }
 footer p { font-size: 11.5px; color: var(--ink-muted); margin-top: 6px; }
 
@@ -1416,6 +1448,9 @@ function renderDashboard(records) {
      perdía la referencia y el timeout pendiente disparaba un paint fantasma.
      `entered` limita la entrada cinematográfica a la primera carga. */
   let deb = null, entered = false;
+  // Pestaña activa del panel y selección de la vista Becario ↔ Tutor
+  // vsMode: 'persona' = un becario concreto · 'area' = agregado de un área
+  let vTab = 'panel', vsBec = '', vsHito = '', vsMode = 'persona', vsArea = '';
 
   // Normaliza. Hito viene como texto legible desde la lista.
   records.forEach((r) => {
@@ -1434,6 +1469,192 @@ function renderDashboard(records) {
   const TUTORES_D = [...new Map(records.filter((r) => r.Tutor).map((r) => [canon(r.Tutor), r.Tutor.trim()])).values()].sort();
   const PROMOS_D  = uniq((r) => r._promo);
   const NIV_D     = uniq((r) => r.NivelEstudios);
+
+  /* ── Vista Becario ↔ Tutor: las dos caras de la misma persona ─────────
+     Selector de becario + hito → expediente, cruce clave (¿quiere quedarse?
+     vs ¿lo incorporaría?) y las respuestas de ambos roles lado a lado. */
+  function vsView(records) {
+    // Conmutador persona ↔ área: comparar una persona o todo un departamento
+    const modeSel = `<div class="filter-group"><span class="filter-label">Comparar</span>
+      <button class="filter" data-vsmode="persona" aria-pressed="${vsMode === 'persona'}" type="button">Persona</button>
+      <button class="filter" data-vsmode="area" aria-pressed="${vsMode === 'area'}" type="button">Área</button></div>`;
+    if (vsMode === 'area') return vsAreaView(records, modeSel);
+    const becs = new Map();
+    records.forEach((r) => {
+      const c = r._bec ? key(r.Correo) : key(r.CorreoBecario);
+      if (!c) return;
+      if (!becs.has(c)) becs.set(c, { correo: c, nombre: '', hitos: new Set(), exp: null });
+      const b = becs.get(c);
+      if (r.Nombre) b.nombre = r.Nombre.trim();
+      if (r._h) b.hitos.add(r._h);
+      if (r.Area || r.Tutor || r.Estado) b.exp = r;
+    });
+    const list = [...becs.values()].sort((a, b) => (a.nombre || a.correo).localeCompare(b.nombre || b.correo));
+    if (!list.length) return '<div class="vs-missing" style="margin-top:16px">No hay becarios en el CSV cargado.</div>';
+    if (!becs.has(vsBec)) vsBec = list[0].correo;
+    const sel = becs.get(vsBec);
+    const hitosDisp = HITO_KEYS.filter((h) => sel.hitos.has(h));
+    if (!hitosDisp.includes(vsHito)) vsHito = hitosDisp[hitosDisp.length - 1] || '';
+
+    const selects = `<div class="vs-selrow glass">
+      ${modeSel}
+      <div class="filter-group"><span class="filter-label">Becario/a</span>
+        <select class="filter-sel" id="vs-bec">${list.map((b) =>
+          `<option value="${esc(b.correo)}" ${b.correo === vsBec ? 'selected' : ''}>${esc(b.nombre || b.correo)}</option>`).join('')}</select></div>
+      <div class="filter-group"><span class="filter-label">Hito</span>
+        <select class="filter-sel" id="vs-hito">${hitosDisp.map((h) =>
+          `<option value="${esc(h)}" ${h === vsHito ? 'selected' : ''}>${esc(HITOS[h].label)}</option>`).join('')}</select></div>
+    </div>`;
+    if (!vsHito) return selects + '<div class="vs-missing">Sin hitos con datos para esta persona.</div>';
+
+    const rB = records.find((r) => r._bec && key(r.Correo) === vsBec && r._h === vsHito);
+    const rT = records.find((r) => !r._bec && key(r.CorreoBecario) === vsBec && r._h === vsHito);
+    const exp = (rB && (rB.Nombre || rB.Area)) ? rB : ((rT && (rT.Nombre || rT.Area)) ? rT : sel.exp);
+
+    const expdte = exp ? `<div class="vs-expediente glass">
+      <span><b>${esc(exp.Nombre || vsBec)}</b></span>
+      ${exp.Area ? `<span>Área: <b>${esc(exp.Area)}</b></span>` : ''}
+      ${exp.Tutor ? `<span>Tutor/a: <b>${esc(exp.Tutor)}</b></span>` : ''}
+      ${exp.EntidadFormativa ? `<span>Centro: <b>${esc(exp.EntidadFormativa)}</b></span>` : ''}
+      ${exp.FechaInicio ? `<span>Inicio: <b>${esc(exp.FechaInicio)}</b></span>` : ''}
+      ${exp.Estado ? `<span>Estado: <b>${esc(exp.Estado)}</b></span>` : ''}
+    </div>` : '';
+
+    // Cruce clave (solo hitos con pregunta de continuidad)
+    let flag = '';
+    if (vsHito !== '6m') {
+      const quiere = (rB && rB.pr3) || '';
+      const apuesta = (rT && rT.i1) || '';
+      if (quiere || apuesta) {
+        const q = quiere === 'Sí' ? 2 : quiere === 'Quizás' ? 1 : quiere === 'No' ? 0 : -1;
+        const a = apuesta.startsWith('Sí') ? 2 : apuesta.startsWith('Aún') ? 1 : apuesta === 'No' ? 0 : -1;
+        let tono = 'warn', txt;
+        if (q === 2 && a === 2) { tono = 'good'; txt = '<b>Match de incorporación:</b> quiere quedarse y su tutor/a lo/la incorporaría. Candidato/a claro/a a oferta.'; }
+        else if (q === 0 && a === 2) { tono = 'crit'; txt = '<b>Riesgo de fuga de talento:</b> su tutor/a lo/la incorporaría, pero declara que no quiere quedarse. Conversación urgente.'; }
+        else if (q === 2 && a === 0) { txt = '<b>Desajuste:</b> quiere quedarse pero su tutor/a no lo/la incorporaría a plantilla.'; }
+        else { txt = `<b>Cruce continuidad:</b> becario/a dice "${esc(quiere || 'sin dato')}" · tutor/a dice "${esc(apuesta || 'sin dato')}".`; }
+        flag = `<div class="vs-flag vs-flag--${tono}"><div>${txt}</div></div>`;
+      }
+    }
+
+    const col = (rol, row) => {
+      const chip = rol === 'becario' ? '<span class="vs-rolechip vs-rolechip--b">Becario/a</span>' : '<span class="vs-rolechip vs-rolechip--t">Tutor/a</span>';
+      const titulo = rol === 'becario' ? 'Lo que responde el/la becario/a' : 'Lo que responde su tutor/a';
+      if (!row) return `<div class="card glass vs-col"><h4>${chip} ${titulo}</h4>
+        <div class="vs-missing" style="margin-top:14px">Aún sin respuesta de este rol en el hito ${esc(HITOS[vsHito].label)}.<br>El Nag-Bot seguirá avisando hasta tenerla.</div></div>`;
+      const bloques = blocksFor(rol, vsHito).filter((b) => b.id !== 'meta');
+      const qhtml = bloques.map((b) => `<div class="vs-block">
+        <div class="vs-block-name">${esc(b.title)}</div>
+        ${b.questions.map((qd) => {
+          const v = (row[qd.id] ?? '').toString().trim();
+          if (qd.type === 'scale5' || qd.type === 'scale10' || qd.type === 'nps') {
+            const max = qd.type === 'scale5' ? 5 : 10;
+            const n = parseFloat(v);
+            const val = isNaN(n) ? '<span class="vs-val" style="color:var(--ink-muted)">—</span>'
+              : `<span class="vs-val"><span class="vs-minibar" style="--p:${((n / max) * 100).toFixed(0)}"><i></i></span>${n}/${max}</span>`;
+            return `<div class="vs-q"><span class="vs-q-label">${esc(qd.label)}</span>${val}</div>`;
+          }
+          return `<div class="vs-q"><span class="vs-q-label">${esc(qd.label)}</span>
+            <span class="vs-val${v.length > 24 ? ' vs-val--txt' : ''}">${v ? esc(v) : '—'}</span></div>`;
+        }).join('')}
+      </div>`).join('');
+      return `<div class="card glass vs-col"><h4>${chip} ${titulo}</h4>${qhtml}</div>`;
+    };
+
+    return selects + expdte + flag + `<div class="vs-grid">${col('becario', rB)}${col('tutor', rT)}</div>`;
+  }
+
+  /* ── Vista Área: agregado de becarios del área vs tutores del área ─────
+     Las filas de tutor llevan el Área del becario evaluado (la rellena el
+     robot nocturno), así que "tutores del área" = tutores evaluando a
+     becarios de esa área. Escalas → media; opciones → distribución;
+     textos → citas. Celda vacía nunca cuenta (no es un 0). */
+  function vsAreaView(records, modeSel) {
+    const areas = [...new Map(records.filter((r) => r.Area).map((r) => [canon(r.Area), r.Area.trim()])).values()].sort();
+    if (!areas.length) return `<div class="vs-selrow glass">${modeSel}</div>
+      <div class="vs-missing">Ninguna fila tiene Área todavía. El robot nocturno la rellena
+      desde el maestro (03:00); también puedes ejecutarlo a mano en Power Automate.</div>`;
+    if (!areas.some((a) => canon(a) === canon(vsArea))) vsArea = areas[0];
+    const enArea = records.filter((r) => canon(r.Area) === canon(vsArea));
+    const hitosDisp = HITO_KEYS.filter((h) => enArea.some((r) => r._h === h));
+    if (!hitosDisp.includes(vsHito)) vsHito = hitosDisp[hitosDisp.length - 1] || '';
+
+    const selects = `<div class="vs-selrow glass">
+      ${modeSel}
+      <div class="filter-group"><span class="filter-label">Área</span>
+        <select class="filter-sel" id="vs-area">${areas.map((a) =>
+          `<option value="${esc(a)}" ${canon(a) === canon(vsArea) ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></div>
+      <div class="filter-group"><span class="filter-label">Hito</span>
+        <select class="filter-sel" id="vs-hito">${hitosDisp.map((h) =>
+          `<option value="${esc(h)}" ${h === vsHito ? 'selected' : ''}>${esc(HITOS[h].label)}</option>`).join('')}</select></div>
+    </div>`;
+    if (!vsHito) return selects + '<div class="vs-missing">Sin hitos con datos en esta área.</div>';
+
+    const Bs = enArea.filter((r) => r._bec && r._h === vsHito);
+    const Ts = enArea.filter((r) => !r._bec && r._h === vsHito);
+    const quien = (r) => (r.Nombre || r.Correo || r.CorreoBecario || '').toString().trim();
+
+    const expdte = `<div class="vs-expediente glass">
+      <span><b>${esc(vsArea)}</b></span>
+      <span>Becarios/as: <b>${Bs.length}</b> respuesta${Bs.length !== 1 ? 's' : ''}</span>
+      <span>Tutores/as: <b>${Ts.length}</b> respuesta${Ts.length !== 1 ? 's' : ''}</span>
+      ${Bs.length ? `<span style="color:var(--ink-muted)">${esc(Bs.map(quien).filter(Boolean).join(' · '))}</span>` : ''}
+    </div>`;
+
+    // Cruce clave agregado: % que quiere quedarse vs % que incorporaría
+    let flag = '';
+    if (vsHito !== '6m') {
+      const q = Bs.filter((r) => (r.pr3 || '').trim()), a = Ts.filter((r) => (r.i1 || '').trim());
+      if (q.length || a.length) {
+        const pq = q.length ? Math.round(q.filter((r) => r.pr3.trim() === 'Sí').length / q.length * 100) : null;
+        const pa = a.length ? Math.round(a.filter((r) => r.i1.trim().startsWith('Sí')).length / a.length * 100) : null;
+        const tono = (pq !== null && pa !== null) ? (pq >= 50 && pa >= 50 ? 'good' : (pq < 50 && pa >= 50 ? 'crit' : 'warn')) : 'warn';
+        flag = `<div class="vs-flag vs-flag--${tono}"><div><b>Cruce continuidad del área:</b>
+          ${pq !== null ? `el <b>${pq}%</b> de becarios/as quiere quedarse (${q.length} resp.)` : 'sin datos de becarios'} ·
+          ${pa !== null ? `los tutores incorporarían al <b>${pa}%</b> (${a.length} resp.)` : 'sin datos de tutores'}.</div></div>`;
+      }
+    }
+
+    // Media/distribución/citas por pregunta sobre las filas con respuesta
+    const colAgg = (rol, rows) => {
+      const chip = rol === 'becario' ? '<span class="vs-rolechip vs-rolechip--b">Becarios/as</span>' : '<span class="vs-rolechip vs-rolechip--t">Tutores/as</span>';
+      const titulo = rol === 'becario' ? `Media de ${rows.length} becario${rows.length !== 1 ? 's' : ''}/a${rows.length !== 1 ? 's' : ''}` : `Media de ${rows.length} tutor${rows.length !== 1 ? 'es' : ''}/a${rows.length !== 1 ? 's' : ''}`;
+      if (!rows.length) return `<div class="card glass vs-col"><h4>${chip} Sin respuestas</h4>
+        <div class="vs-missing" style="margin-top:14px">Nadie de este rol ha respondido el hito ${esc(HITOS[vsHito].label)} en ${esc(vsArea)}.</div></div>`;
+      const bloques = blocksFor(rol, vsHito).filter((b) => b.id !== 'meta');
+      const qhtml = bloques.map((b) => `<div class="vs-block">
+        <div class="vs-block-name">${esc(b.title)}</div>
+        ${b.questions.map((qd) => {
+          const vals = rows.map((r) => (r[qd.id] ?? '').toString().trim()).filter(Boolean);
+          if (!vals.length) return `<div class="vs-q"><span class="vs-q-label">${esc(qd.label)}</span>
+            <span class="vs-val" style="color:var(--ink-muted)">—</span></div>`;
+          if (qd.type === 'scale5' || qd.type === 'scale10' || qd.type === 'nps') {
+            const max = qd.type === 'scale5' ? 5 : 10;
+            const nums = vals.map(parseFloat).filter((n) => !isNaN(n));
+            if (!nums.length) return '';
+            const media = nums.reduce((s, n) => s + n, 0) / nums.length;
+            return `<div class="vs-q"><span class="vs-q-label">${esc(qd.label)}</span>
+              <span class="vs-val"><span class="vs-minibar" style="--p:${((media / max) * 100).toFixed(0)}"><i></i></span>${media.toFixed(1)}/${max}
+              <small style="color:var(--ink-muted)">n=${nums.length}</small></span></div>`;
+          }
+          if (qd.type === 'textarea') {
+            return `<div class="vs-q"><span class="vs-q-label">${esc(qd.label)}</span>
+              <span class="vs-val vs-val--txt">${vals.map((v) => `«${esc(v)}»`).join('<br>')}</span></div>`;
+          }
+          // Opciones (radio/desplegable): distribución compacta "Sí 3 · No 1"
+          const cnt = new Map();
+          vals.forEach((v) => cnt.set(v, (cnt.get(v) || 0) + 1));
+          const dist = [...cnt.entries()].sort((x, y) => y[1] - x[1])
+            .map(([v, n]) => `${esc(v)}&nbsp;<b>${n}</b>`).join(' · ');
+          return `<div class="vs-q"><span class="vs-q-label">${esc(qd.label)}</span>
+            <span class="vs-val${dist.length > 30 ? ' vs-val--txt' : ''}">${dist}</span></div>`;
+        }).join('')}
+      </div>`).join('');
+      return `<div class="card glass vs-col"><h4>${chip} ${titulo}</h4>${qhtml}</div>`;
+    };
+
+    return selects + expdte + flag + `<div class="vs-grid">${colAgg('becario', Bs)}${colAgg('tutor', Ts)}</div>`;
+  }
 
   function paint() {
     clearTimeout(deb);  // corta cualquier repintado de búsqueda pendiente
@@ -1465,7 +1686,11 @@ function renderDashboard(records) {
           <button class="btn btn--ghost" id="print" type="button">Imprimir / PDF</button>
         </div>
       </div>
-      ${k.silencio}
+      <div class="dtabs">
+        <button class="dtab" data-tab="panel" aria-pressed="${vTab === 'panel'}" type="button">Panel general</button>
+        <button class="dtab" data-tab="vs" aria-pressed="${vTab === 'vs'}" type="button">Becario ↔ Tutor</button>
+      </div>
+      ${vTab === 'vs' ? vsView(records) : `${k.silencio}
       <div class="filter-row glass">
         <div class="filter-group"><span class="filter-label">Hito</span>
           ${['all', ...HITO_KEYS].map((h) => `<button class="filter" data-hito="${esc(h)}"
@@ -1494,7 +1719,7 @@ function renderDashboard(records) {
         </div>
       </div>
       ${!rows.length ? `<div class="empty"><h3>Sin respuestas para este filtro</h3>
-        <p>Prueba con otra modalidad u otro hito.</p></div>` : k.html}`;
+        <p>Prueba con otra modalidad u otro hito.</p></div>` : k.html}`}`;
 
     /* Entrada cinematográfica: stagger de 70ms con easing (0.22,1,0.36,1),
        solo la primera vez — repintar por un filtro no debe re-animar todo. */
@@ -1506,6 +1731,11 @@ function renderDashboard(records) {
     $('#back').addEventListener('click', renderLanding);
     $('#reload').addEventListener('click', () => renderImport());
     $('#print').addEventListener('click', () => window.print());
+    $$('.dtab', view).forEach((b) => b.addEventListener('click', () => { vTab = b.dataset.tab; paint(); }));
+    $('#vs-bec')?.addEventListener('change', (e) => { vsBec = e.target.value; vsHito = ''; paint(); });
+    $('#vs-hito')?.addEventListener('change', (e) => { vsHito = e.target.value; paint(); });
+    $('#vs-area')?.addEventListener('change', (e) => { vsArea = e.target.value; vsHito = ''; paint(); });
+    $$('[data-vsmode]', view).forEach((b) => b.addEventListener('click', () => { vsMode = b.dataset.vsmode; paint(); }));
     $$('[data-mod]', view).forEach((b) => b.addEventListener('click', () => { fMod = b.dataset.mod; paint(); }));
     $$('[data-hito]', view).forEach((b) => b.addEventListener('click', () => { fHito = b.dataset.hito; paint(); }));
     $$('[data-promo]', view).forEach((b) => b.addEventListener('click', () => { fPromo = b.dataset.promo; paint(); }));
